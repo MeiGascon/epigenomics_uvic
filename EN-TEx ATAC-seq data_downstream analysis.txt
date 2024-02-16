@@ -1,0 +1,111 @@
+####################################################   EN-TEx-ATAC-seq-data: downstream analyses   ################################################
+
+- Move to folder ATAC-seq, and create folders to store bigBed data files and peaks analyses files. Make sure the files are organized in a consistent way as done for ChIP-seq.
+
+- Retrieve from a newly generated metadata file ATAC-seq peaks (bigBed narrow, pseudoreplicated peaks, assembly GRCh38) for stomach and sigmoid_colon for the same donor used in the previous sections. Make sure your md5sum values coincide with the ones provided by ENCODE.
+
+- For each tissue, run an intersection analysis using BEDTools: report 1) the number of peaks that intersect promoter regions, 2) the number of peaks that fall outside gene coordinates (whole gene body, not just the promoter regions).
+
+
+# Open Ubuntu Terminal and Docker Desktop
+
+cd epigenomics_uvic
+
+sudo docker run -v $PWD:$PWD -w $PWD --rm -it dgarrimar/epigenomics_course
+
+cd ATAC-seq
+
+mkdir analyses
+
+mkdir analyses/peaks.analysis
+
+mkdir data 
+
+mkdir data/bigBed.files
+
+# Download metadata.tsv files from ENCODE --> data --> Epigenomes from four individuals (ENTEx) --> ENCDO451RUA --> Functional genomics experiments from this donor --> View all --> Assay (DNA accessibility); Biosample (sigmoid_colon and stomach) --> download selected files (5 files).
+
+../bin/download.metadata.sh "https://www.encodeproject.org/metadata/?replicates.library.biosample.donor.uuid=d370683e-81e7-473f-8475-7716d027849b&status=released&status=submitted&status=in+progress&assay_slims=DNA+accessibility&biosample_ontology.term_name=stomach&biosample_ontology.term_name=sigmoid+colon&type=Experiment"
+
+wc -l metadata.tsv
+120 metadata.tsv
+
+grep "snATAC" metadata.tsv | wc -l
+7
+grep "DNase-seq" metadata.tsv | wc -l
+84
+
+***Note: I download metadata.tsv file for: ATAC-seq in stomach, snATAC-seq in stomach, DNase-seq in stomach, DNase-seq in sigmoid colon and ATAC-seq in sigmoid colon. Since I only want ATAC-seq in stomach and ATAC-seq in sigmoid colon, I filtered metadata.tsv file. Otherwise, I could choose in Assay title ATAC-seq (the best correct way).
+
+grep -v "snATAC" metadata.tsv | grep -v "DNase-seq" > metadata_filtrado.tsv
+
+wc -l metadata_filtrado.tsv
+29 metadata_filtrado.tsv # (28 rows + title columns)
+
+***Note: There is a considerable number of files associated with a given experiment (fastq, bam, bigBed, bigWig). For a matter of space limit, it's always convenient to download only the files that we need, and avoid storing for a long time material that we could easily re-download. To do so, we can rely on the metadata file provided by ENCODE. The metadata file contains information about all the files related to the selected experiment.
+
+# Create .txt file with the information of bigBed_narrowPeak, pseudoreplicated_peaks and GRCh38.
+
+grep -F "bigBed_narrowPeak" metadata_filtrado.tsv | grep -F "pseudoreplicated_peaks" | grep -F "GRCh38" | awk 'BEGIN{FS=OFS="\t"}{print $1, $11, $23}' | sort -k2,2 -k1,1r | sort -k2,2 -u > analyses/bigBed.peaks.ids.txt
+
+# Download bigBed files (bigbed narrow peaks, pseudoreplicated peaks and assembly GRCh38) for stomach and sigmoid_colon for the same donor
+
+cut -f1 analyses/bigBed.peaks.ids.txt | while read filename; do wget -P data/bigBed.files "https://www.encodeproject.org/files/$filename/@@download/$filename.bigBed"; done
+
+# Verify that the metadata I have downloaded matches the metadata from the ENCODE website.
+
+../bin/selectRows.sh <(cut -f1 analyses/bigBed.peaks.ids.txt) metadata_filtrado.tsv | cut -f1,46 > data/bigBed.files/md5sum.txt # What I hope to obtain. From ENCODE
+
+cat data/bigBed.files/md5sum.txt | while read filename original_md5sum; do md5sum data/bigBed.files/"$filename".bigBed | awk -v filename="$filename" -v original_md5sum="$original_md5sum" 'BEGIN{FS=" "; OFS="\t"}{print filename, original_md5sum, $1}'; done > tmp
+
+***Note: In this context, $1 represents the first column from the md5sum that I am generating, while filename and original_md5sum are those from ENCODE. Therefore, in the tmp file, I have the filename (from ENCODE), the md5sum (from ENCODE), and the md5sum (the one I calculated).
+
+# Move, rename and overwrite (by default) tmp file
+
+mv tmp data/bigBed.files/md5sum.txt
+
+# Make sure there are no files for which original and computed MD5 hashes differ.
+
+awk '$2!=$3' data/bigBed.files/md5sum.txt
+awk '$2!=$3' md5sum.txt # exactly the same
+
+
+#For each tissue, run an intersection analysis using BEDTools: report 1) the number of peaks that intersect promoter regions, 2) the number of peaks that fall outside gene coordinates (whole gene body, not just the promoter regions).
+
+#1. The number of peaks that intersect promoter regions. Identify how many of these accessible regions (peaks) coincide with promoter regions. This could provide insight into which genes may be regulated in the tissues I am analyzing.
+
+# Copy from Chip-seq Hands On the list of promoters ([-2 kb, +2 Kb] from TSS) of protein-coding genes.
+
+cp gencode.v24.protein.coding.non.redundant.TSS.bed ../../ATAC-seq/annotation/
+
+# We need to convert the bigBed files (ENCFF287UHP.bigBed and ENCFF762IFP.bigBed) to bed format. The bed format is more readable and widely used, making it easier to view. To convert from bigBed to bed, we use the bigBedToBed command. Additionally, it’s important that all files are in the same format to ensure proper analysis and comparison.
+
+cut -f1 analyses/bigBed.peaks.ids.txt | while read filename; do bigBedToBed data/bigBed.files/"$filename".bigBed data/bed.files/"$filename".bed; done
+
+# Intersection analysis. We are identifying DNA accessibility peaks that coincide with the promoter regions of protein-coding genes across stomach and sigmoid_colon.
+
+cut -f-2 analyses/bigBed.peaks.ids.txt | while read filename tissue; do bedtools intersect -a data/bed.files/"$filename".bed -b annotation/gencode.v24.protein.coding.non.redundant.TSS.bed -u> analyses/peaks.analysis/peaks.promoter."$tissue".bed; done
+
+wc peaks.promoter.*.bed -l
+  47871 peaks.promoter.sigmoid_colon.bed
+  44749 peaks.promoter.stomach.bed
+  92620 total
+
+########################################################################### PART 2 ########################################################
+
+#2. The number of peaks that fall outside gene coordinates (whole gene body, not just the promoter regions). The exercise now requires us to examine the peaks that do not overlap with any gene regions. We already have the library gene annotation from ChIP-seq, so we simply copy it to ATAC-seq.
+
+cp annotation/gencode.v24.protein.coding.gene.body.bed ../../ATAC-seq/annotation/ 
+
+***Note: In BED files, the start coordinates are 0-based and the end coordinates are 1-based. This means that the first base of a chromosome is base 0, but the end of an interval is exclusive, that is, the end base is not included in the interval. Therefore, when you convert from a GTF file (1-based start, 1-based end) to a BED file (0-based start, 1-based end), you only need to subtract 1 from the start coordinate. The end coordinate remains the same.
+
+# Intersection analysis. We are identifying DNA accessibility peaks that do not overlap with any gene regions.
+
+cut -f-2 analyses/bigBed.peaks.ids.txt | while read filename tissue; do bedtools intersect -a data/bed.files/"$filename".bed -b annotation/gencode.v24.protein.coding.gene.body.bed  -v > analyses/peaks.analysis/peaks.outside.gene."$tissue".bed; done
+
+***Note: -v means not overlaping. -u means overlaping.
+
+ wc analyses/peaks.analysis/peaks.not.body.*.bed -l
+  37035 analyses/peaks.analysis/peaks.outside.gene.sigmoid_colon.bed
+  34537 analyses/peaks.analysis/peaks.outside.gene.stomach.bed
+  71572 total
