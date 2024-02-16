@@ -1,0 +1,343 @@
+########################################################### Distal regulatory activity ######################################################
+
+From section 4., you should have obtained a set of ATAC-seq peaks in stomach and sigmoid_colon that lie outside gene coordinates. We will use these peaks as a starting point to build a catalogue of distal regulatory regions.
+
+################################################################### TASK 1 #######################################################################
+
+# Task 1: Create a folder regulatory_elements inside epigenomics_uvic. This will be the folder where you store all your subsequent results. I also copy files from ATAC-seq.
+
+mkdir regulatory_elements
+
+cp peaks.outside.gene.stomach.bed ../../../regulatory_elements/
+
+cp peaks.outside.gene.sigmoid_colon.bed ../../../regulatory_elements/
+
+################################################################## TASK 2 ##########################################################################
+
+# Task 2: Distal regulatory regions are usually found to be flanked by both H3K27ac and H3K4me1. From your starting catalogue of open regions in each tissue, select those that overlap peaks of H3K27ac AND H3K4me1 in the corresponding tissue. You will get a list of candidate distal regulatory elements for each tissue. How many are they?
+
+***Note: we need metadata from HandsOn sesion, since it's DNA binding. That's why I copied metadata.
+
+cp metadata.tsv ../regulatory_elements
+
+# We filter metadata to download only what we need (for H3K4me1 and H3K27ac).
+
+grep -F H3K4me1 metadata.tsv | grep -F "bigBed_narrowPeak" | grep -F "pseudoreplicated_peaks" | grep -F "GRCh38" | awk 'BEGIN{FS=OFS="\t"}{print $1,$11,$23}' | sort -k2,2 -k1,1r | sort -k2,2 -u > analyses/bigBed.peaks.H3K4me1.txt
+
+head bigBed.peaks.H3K4me1.txt
+ENCFF724ZOF     sigmoid_colon   H3K4me1-human
+ENCFF844XRN     stomach H3K4me1-human
+
+grep -F H3K27ac metadata.tsv | grep -F
+"bigBed_narrowPeak" | grep -F "pseudoreplicated_peaks" | grep -F "GRCh38" | awk 'BEGIN{FS=OFS="\t"}{print $1,$11,$23}' | sort -k2,2 -k1,1r | sort -k2,2 -u > analyses/bigBed.peaks.H3K27ac.txt
+
+ head bigBed.peaks.H3K27ac.txt
+ENCFF872UHN     sigmoid_colon   H3K27ac-human
+ENCFF977LBD     stomach H3K27ac-human
+
+# Now we download bigBed files for both histones (for both tissues).
+
+# For H3K27ac
+cut -f1 analyses/bigBed.peaks.H3K27ac.txt | while read filename; do wget -P data/bigBed.files "https://www.encodeproject.org/files/$filename/@@download/$filename.bigBed"; done
+
+# For H3K4me1
+cut -f1 analyses/bigBed.peaks.H3K4me1.txt | while read filename; do wget -P data/bigBed.files "https://www.encodeproject.org/files/$filename/@@download/$filename.bigBed"; done
+
+# Verify that the metadata I have downloaded matches the metadata from the ENCODE website.
+
+for file_type in bigBed; do ../bin/selectRows.sh <(cut -f1 analyses/"$file_type".peaks.*.txt) metadata.tsv | cut -f1,46 > data/"$file_type".files/md5su
+m.txt; done
+
+head md5sum.txt
+ENCFF977LBD     be29636550527e36c4755ea036531e75
+ENCFF844XRN     de679228721fb4055aa1f657c77c21a6
+ENCFF872UHN     2207b7b3378df7776e7ecdc2aa1a5de0
+ENCFF724ZOF     c87fefbf41de3d291fa1d340a26627f5
+
+
+cat data/"$file_type".files/md5sum.txt |while read filename original_md5sum; do md5sum data/"$file_type".files/"$filename"."$file_type" |awk -v filename="$filename" -v original_md5sum="$original_md5sum" 'BEGIN{FS=" "; OFS="\t"}{print filename, original_md5sum, $1}'; done > tmp
+
+mv tmp data/bigBed.files/md5sum.txt
+
+# Make sure there are no files for which original and computed MD5 hashes differ
+
+awk '$2!=$3' data/bigbed.files/md5sum.txt
+
+# Then, we convert bigBed files of ATAC-seq peaks to BED files with the bigBedToBed command
+
+cut -f1 data/bigBed.files/md5sum.txt | while read filename; do bigBedToBed data/bigBed.files/"$filename".bigBed data/bed.files/"$filename".bed; done
+
+root@0faf90fa2bdf:/home/mei_gascon/epigenomics_uvic/regulatory_elements/data/bed.files# ls
+ENCFF724ZOF.bed  ENCFF844XRN.bed  ENCFF872UHN.bed  ENCFF977LBD.bed
+
+root@0faf90fa2bdf:/home/mei_gascon/epigenomics_uvic/regulatory_elements/data/bed.files# head ENCFF724ZOF.bed
+chr1    191234  191865  Peak_104561     56      .       2.91997 5.62833 3.83890 169
+chr1    777713  778191  Peak_50412      92      .       3.75424 9.23951 7.06723 341
+chr1    818051  818341  Peak_78124      69      .       3.13195 6.98934 5.05031 87
+chr1    828946  829362  Peak_92825      61      .       3.05901 6.18588 4.33544 161
+chr1    858349  859229  Peak_72071      73      .       3.33710 7.35620 5.37448 223
+chr1    904085  904525  Peak_63013      80      .       3.20392 8.03901 5.98815 169
+chr1    904814  905874  Peak_30670      120     .       4.13417 12.02016        9.57403 564
+chr1    909794  911376  Peak_50179      92      .       3.13770 9.25312 7.07858 197
+chr1    916277  917784  Peak_10043      188     .       5.56184 18.85710        15.80650        344
+chr1    920101  922175  Peak_2957       266     .       5.85949 26.69598        22.98630        953
+
+cat bigBed.peaks.H3K27ac.txt bigBed.peaks.H3K4me1.txt > bigBed.peaks.H3K27ac.H3K4me1.txt
+
+cat analyses/bigBed.peaks.H3K27ac.H3K4me1.txt
+ENCFF872UHN     sigmoid_colon   H3K27ac-human
+ENCFF977LBD     stomach H3K27ac-human
+ENCFF724ZOF     sigmoid_colon   H3K4me1-human
+ENCFF844XRN     stomach H3K4me1-human
+
+
+# This command searches for the regions of the file peaks.outside.gene.sigmoid_colon.bed/peaks.outside.gene.stomach.bed that overlap with the regions of the files ENCFF724ZOF.bed and ENCFF872UHN.bed, and saves these overlapping regions in the file peaks.overlaps.sigmoid_colon.H3K27ac.H3K4me1.bed.
+
+# For sigmoid_colon
+bedtools intersect -a peaks.outside.gene.sigmoid_colon.bed -b data/bed.files/ENCFF724ZOF.bed data/bed.files/ENCFF872UHN.bed -u > analyses/peaks.analysis/peaks.overlaps.sigmoid_colon.H3K27ac.H3K4me1.bed
+
+# For stomach
+bedtools intersect -a peaks.outside.gene.stomach.bed -b data/bed.files/ENCFF977LBD.bed data/bed.files/ENCFF844XRN.bed -u > analyses/peaks.analysis/peaks.overlaps.stomach.H3K27ac.H3K4me1.bed
+
+wc peaks.overlaps.*.bed -l
+  23130 peaks.overlaps.sigmoid_colon.H3K27ac.H3K4me1.bed --> for sigmoid colon
+  18028 peaks.overlaps.stomach.H3K27ac.H3K4me1.bed --> for stomach
+  41158 total
+
+***Note: It is not necessary for the regions of the -a file to overlap with the regions of the two -b files. Therefore, if a region in the -a file overlaps with a region in either of the two -b files, that region will be written to the output
+
+
+######################################################################## TASK 3 #################################################################
+
+Task 3: Focus on regulatory elements that are located on chromosome 1 (hint: to parse a file based on the value of a specific column, have a look at what we did here), and generate a file regulatory.elements.starts.tsv that contains the name of the regulatory region (i.e. the name of the original ATAC-seq peak) and the start (5') coordinate of the region.
+
+# for sigmoid colon:
+
+grep "chr1" peaks.overlaps.sigmoid_colon.H3K27ac.H3K4me1.bed | wc -l
+10734
+
+grep "chr1" peaks.overlaps.sigmoid_colon.H3K27ac.H3K4me1.bed | awk 'BEGIN{FS=OFS="\t"} {print $4,$2}' > regulatory.elements.sigmoid_colon.starts.tsv
+
+# for stomach
+
+grep "chr1" peaks.overlaps.stomach.H3K27ac.H3K4me1.bed | wc -l
+8602
+
+grep "chr1" peaks.overlaps.stomach.H3K27ac.H3K4me1.bed | awk 'BEGIN{FS=OFS="\t"} {print $4,$2}' > regulatory.elements.stomach.starts.tsv
+
+####################################################################### TASK 4 ########################################################################
+
+Task 4: Focus on protein-coding genes located on chromosome 1. From the BED file of gene body coordinates that you generated here, prepare a tab-separated file called gene.starts.tsv which will store the name of the gene in the first column, and the start coordinate of the gene on the second column (REMEMBER: for genes located on the minus strand, the start coordinate will be at the 3'). Use the command below as a starting point: awk 'BEGIN{FS=OFS="\t"}{if ($6=="+"){start=$2} else {start=$3}; print $4, start}'
+
+
+awk 'BEGIN{FS=OFS="\t"} $1 == "chr1" {if ($6=="+"){start=$2} else {start=$3}; print $4, start, $6}' ../ChIP-seq/annotation/gencode.v24.protein.coding.gene.body.bed > analyses/gene.starts.tsv
+
+head gene.starts.tsv
+ENSG00000186092.4       69090   +
+ENSG00000279928.1       182392  +
+ENSG00000279457.3       200322  -
+ENSG00000278566.1       451678  -
+ENSG00000273547.1       686654  -
+ENSG00000187634.10      924879  +
+ENSG00000188976.10      959309  -
+ENSG00000187961.13      960586  +
+ENSG00000187583.10      966496  +
+ENSG00000187642.9       982093  -
+
+
+awk 'BEGIN{FS=OFS="\t"} $1 == "chr1" {if ($6=="+"){start=$2} else {start=$3}; print $4, start}' ../ChIP-seq/annotation/gencode.v24.protein.coding.g
+ene.body.bed > analyses/gene.starts.tsv
+
+
+head gene.starts.tsv
+ENSG00000186092.4       69090
+ENSG00000279928.1       182392
+ENSG00000279457.3       200322
+ENSG00000278566.1       451678
+ENSG00000273547.1       686654
+ENSG00000187634.10      924879
+ENSG00000188976.10      959309
+ENSG00000187961.13      960586
+ENSG00000187583.10      966496
+ENSG00000187642.9       982093
+
+wc gene.starts.tsv -l 
+2047 gene.starts.tsv
+
+
+############################################################################ TASK 5 #############################################################
+
+
+Task 5: Download or copy this python script inside the epigenomics_uvic/bin folder. Have a look at the help page of this script to understand how it works:
+python ../bin/get.distance.py -h. This script takes as input two distinct arguments: 1) --input corresponds to the file gene.starts.tsv (i.e. the file you generated in Task #4); 2) --start corresponds to the 5' coordinate of a regulatory element. Complete the python script so that for a given coordinate --start the script returns the closest gene, the start of the gene and the distance of the regulatory element. To make sure your script is working fine, run the following command:
+python ../bin/get.distance.py --input gene.starts.tsv --start 980000
+You should be getting this result:
+
+ENSG00000187642.9	982093 2093
+
+
+# We download the python file
+
+wget -P bin/ https://public-docs.crg.es/rguigo/Data/bborsari/UVIC/epigenomics_course/get.distance.py
+
+
+***Note: python file *********************************************************************************************
+
+#!/usr/bin/env python
+
+
+#************
+# LIBRARIES *
+#************
+
+import sys
+from optparse import OptionParser
+
+
+#*****************
+# OPTION PARSING *
+#*****************
+
+parser = OptionParser()
+parser.add_option("-i", "--input", dest="input")
+parser.add_option("-s", "--start", dest="start")
+options, args = parser.parse_args()
+
+open_input = open(options.input)
+enhancer_start = int(options.start)
+
+
+#********
+# BEGIN *
+#********
+
+x=1000000 # set maximum distance to 1 Mb
+selectedGene="" # initialize the gene as empty
+selectedGeneStart=0 # initialize the start coordinate of the gene as empty
+
+for line in open_input.readlines(): # for each line in the input file
+	gene, y = line.strip().split('\t') # split the line into two columns based on a tab 
+	position = int(y) # define a variable called position that correspond to the integer of the start of the gene
+	difference = abs(position-enhancer_start) # compute the absolute value of the difference between position and enhancer_start
+
+	if difference < x: # if this absolute value is lower than x
+		x = difference # this value will now be your current x
+		selectedGene = gene # save gene as selectedGene
+		selectedGeneStart = position # save position as selectedGeneStart
+
+print "\t".join([selectedGene, str(selectedGeneStart), str(x)])
+
+************************************************************************************************************
+
+
+# It works
+
+python ../bin/get.distance.py --input analyses/gene.starts.tsv --start 980000
+ENSG00000187642.9       982093  2093
+
+############################################################# TASK 6 ###############################################################
+
+Task 6. For each regulatory element contained in the file regulatory.elements.starts.tsv, retrieve the closest gene and the distance to the closest gene using the python script you created above. Use the command below as a starting point:
+
+cat regulatory.elements.starts.tsv | while read element start; do 
+   python ../bin/get.distance.py ... # to be completed by you; 
+done > regulatoryElements.genes.distances.tsv
+
+
+# For both tissues at the same time. The command takes a bit of time to execute.
+
+for tissue in stomach sigmoid_colon; do cat analyses/peaks.analysis/regulatory.elements.$tissue.starts.tsv | while read element start; do  python ../bin/get.distance.py --input analyses/gene.starts.tsv --start $start; done > analyses/peaks.analysis/regulatoryElements.genes.distances.$tissue.tsv; done
+
+***Note: For stomach: 8602 and for sigmoid_colon: 10734
+
+# One by one (the same as the command above)
+
+# For sigmoid_colon
+
+cat analyses/peaks.analysis/regulatory.elements.sigmoid_colon.starts.tsv | while read element start; do python ../bin/get.distance.py --input analyses/gene.starts.tsv --start $start; done > analyses/peaks.analysis/regulatoryElements.genes.distances.sigmoid_colon.tsv
+
+head regulatoryElements.genes.distances.sigmoid_colon.tsv
+ENSG00000273547.1       686654  91685
+ENSG00000273547.1       686654  91685
+ENSG00000273547.1       686654  91685
+ENSG00000187634.10      924879  107583
+ENSG00000187634.10      924879  107583
+ENSG00000187634.10      924879  107583
+ENSG00000187634.10      924879  106234
+ENSG00000187634.10      924879  106234
+ENSG00000187634.10      924879  97965
+ENSG00000187634.10      924879  97965
+
+# For stomach
+
+cat analyses/peaks.analysis/regulatory.elements.stomach.starts.tsv | while read element start; do python ../bin/get.distance.py --input analyses/gene.s
+tarts.tsv --start $start; done > analyses/peaks.analysis/regulatoryElements.genes.distances.stomach.tsv
+
+head regulatoryElements.genes.distances.stomach.tsv
+ENSG00000273547.1       686654  91846
+ENSG00000187634.10      924879  107546
+ENSG00000187634.10      924879  107546
+ENSG00000187634.10      924879  107546
+ENSG00000187634.10      924879  97925
+ENSG00000187634.10      924879  97925
+ENSG00000187634.10      924879  97925
+ENSG00000187634.10      924879  97925
+ENSG00000187634.10      924879  20244
+ENSG00000187634.10      924879  14308
+
+
+
+########################################################################## TASK 7 ##############################################################
+
+
+Task 7: Use R to compute the mean and the median of the distances stored in regulatoryElements.genes.distances.tsv.
+
+
+# Define wd
+
+setwd("C:/Users/meiga/OneDrive/Escritorio/MEI/UVic_Bioinfo/Epigenomics")
+getwd()
+
+# Load files for both tissues
+stomach <- read.table("//wsl.localhost/Ubuntu/home/mei_gascon/epigenomics_uvic/regulatory_elements/analyses/peaks.analysis/regulatoryElements.genes.distances.stomach.tsv", sep = "\t")
+
+sigmoid_colon <- read.table("//wsl.localhost/Ubuntu/home/mei_gascon/epigenomics_uvic/regulatory_elements/analyses/peaks.analysis/regulatoryElements.genes.distances.sigmoid_colon.tsv", sep="\t")
+
+
+# Change col names.
+
+colnames(stomach) <- c("Closest_Gene", "Start", "Distance")
+colnames(sigmoid_colon) <- c("Closest_Gene", "Start", "Distance")
+
+# Calculate mean and median for both tissues
+
+mean.stomach <- mean(stomach$Distance)
+mean.stomach
+
+median.stomach <- median(stomach$Distance)
+median.stomach
+
+mean.sigmoid_colon <- mean(sigmoid_colon$Distance)
+mean.sigmoid_colon
+
+median.sigmoid_colon <- median(sigmoid_colon$Distance)
+median.sigmoid_colon
+
+> mean.stomach
+[1] 142698.2
+> median.stomach
+[1] 47592
+> mean.sigmoid_colon
+[1] 155141.2
+> median.sigmoid_colon
+[1] 51573
+
+
+
+
+
+
+
+
+
+
